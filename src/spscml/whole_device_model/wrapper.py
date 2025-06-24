@@ -45,7 +45,6 @@ def solve_wdm(inputs: dict) -> dict:
         V0=inputs['Vc0'], Lz=Lz, N=inputs['N'],
         mlflow_run_id=inputs['mlflow_run_id'])
 
-
     ## Initial conditions
     Ip0 = inputs['Ip0']
     # Solve the Bennett relation for initial temperature
