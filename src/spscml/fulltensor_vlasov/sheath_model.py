@@ -114,7 +114,7 @@ def calculate_plasma_current(Vp, T, n, Lz, **kwargs):
     CFL = 0.5
     dtmax = CFL * x_grid.dx / (6*vte)
 
-    solve = lambda: solver.solve(dtmax, 5000, initial_conditions, boundary_conditions, dtmax)
+    solve = lambda: solver.solve(dtmax/2, 500, initial_conditions, boundary_conditions, dtmax)
     result = solve()
     je = -1 * first_moment(result['electron'], electron_grid)
     ji = 1 * first_moment(result['ion'], ion_grid)

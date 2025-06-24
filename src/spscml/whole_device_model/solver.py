@@ -90,7 +90,7 @@ class Solver():
             T: The plasma temperature in units of electron-volts
             n: The plasma density in units of meter^-3
             dt: The timestep in units of seconds
-            sheath_solve: A Callable that accepts (V, N, T), where
+            sheath_solve: A Callable that accepts (V, T, n), where
                 - V is the plasma gap voltage [volts]
                 - T is the plasma temperature [eV]
                 - n is the plasma density [m^-3]
@@ -105,7 +105,33 @@ class Solver():
         # You'll need to implement:
         # - A residual function that accepts a guess [Q, V]^n+1 and returns the error in the implicit step
         # - A call to optx.root_find that performs the Newton solve with self.rootfinder
-        raise NotImplementedError("HACKATHON: implement Implicit Euler step")
+
+        
+        def residual(QV, args):
+            Q, V = QV
+            L_term = (self.Lp/(self.L - self.Lp))
+            I = sheath_solve(V, T, n)
+            VR = (V - L_term*((-Q/self.C) - self.R*I))/(1 + L_term)
+            
+
+            return jnp.array([
+                Q - y[0] - dt * I,
+                -I + y[1] + (dt * ( -Q / self.C - self.R * I + VR) / (self.L - self.Lp))
+                ])
+
+        sol = optx.root_find(
+            residual,
+            self.rootfinder,
+            jnp.array([y[0], Vp]))
+        
+        Q_new, V_new = sol.value
+        Qdot_new = sheath_solve(V_new, T, n)
+        
+
+        return jnp.array([Q_new, Qdot_new]), V_new
+        # raise NotImplementedError("HACKATHON: implement Implicit Euler step")
+
+
 
 
     def log_progress(self, t, y, Vp):
