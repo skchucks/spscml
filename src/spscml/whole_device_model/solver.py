@@ -111,12 +111,12 @@ class Solver():
             Q, V = QV
             L_term = (self.Lp/(self.L - self.Lp))
             I = sheath_solve(V, T, n)
-            VR = (V - L_term*((-Q/self.C) - self.R*I))/(1 + L_term)
+            VR = (V + L_term*((Q/self.C) - self.R*I))/(1 + L_term)
             
 
             return jnp.array([
                 Q - y[0] - dt * I,
-                -I + y[1] + (dt * ( -Q / self.C - self.R * I + VR) / (self.L - self.Lp))
+                -I + y[1] + (dt / (self.L - self.Lp) * ( -Q / self.C - self.R * I + VR))
                 ])
 
         sol = optx.root_find(
