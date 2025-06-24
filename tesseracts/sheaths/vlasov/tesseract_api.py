@@ -96,8 +96,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
 
         out = apply_helper(inputs)
 
-        mlflow.log_figure(f_plots(norm, inputs, plasma, out), "plots/f.png")
-        mlflow.log_figure(jE_plots(norm, inputs, plasma, out), "plots/jE.png")
+        #mlflow.log_figure(f_plots(norm, inputs, plasma, out), "plots/f.png")
+        #mlflow.log_figure(jE_plots(norm, inputs, plasma, out), "plots/jE.png")
 
     # Optional: Insert any post-processing that doesn't require tracing
     # For example, you might want to save to disk or modify a non-differentiable
