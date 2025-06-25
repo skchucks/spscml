@@ -36,15 +36,15 @@ def apply(inputs: dict, sheath_tx) -> dict:
                           parent_run_id=inputs['mlflow_parent_run_id']) as mlflow_run:
         inputs['mlflow_run_id'] = mlflow_run.info.run_id
 
-        for param in ["Vc0", "Ip0", "a0", "N", "Lp_prime", "Lz", 
-                      "R", "L", "C"]:
-            mlflow.log_param(param, inputs[param])
+        # for param in ["Vc0", "Ip0", "a0", "N", "Lp_prime", "Lz", 
+        #               "R", "L", "C"]:
+        #     mlflow.log_param(param, inputs[param])
 
         out = apply_jit(inputs, sheath_tx)
 
-        mlflow.log_figure(circuit_plots(out), "plots/circuit.png")
-        mlflow.log_figure(adiabat_plot(out, inputs['N'], inputs['Lz']), "plots/adiabat.png")
-        mlflow.log_metric("TripleProduct", jnp.sum(out["n"] * out["T"] * inputs['dt']))
+        # mlflow.log_figure(circuit_plots(out), "plots/circuit.png")
+        # mlflow.log_figure(adiabat_plot(out, inputs['N'], inputs['Lz']), "plots/adiabat.png")
+        # mlflow.log_metric("TripleProduct", jnp.sum(out["n"] * out["T"] * inputs['dt']))
 
     # Optional: Insert any post-processing that doesn't require tracing
     # For example, you might want to save to disk or modify a non-differentiable
@@ -83,9 +83,9 @@ def solve_wdm_with_tesseract(inputs: dict, sheath_tesseract) -> dict:
     Lz = inputs['Lz']
     Lp = Lp_prime * Lz
     wdm_solver = Solver(
-        R=inputs['R'], L=inputs['L'], C=inputs['C'], Lp=Lp,
-        V0=inputs['Vc0'], Lz=Lz, N=inputs['N'],
-        mlflow_run_id=inputs['mlflow_run_id'])
+    R=inputs['R'], L=inputs['L'], C=inputs['C'], Lp=Lp,
+    V0=inputs['Vc0'], Lz=Lz, N=inputs['N'],
+    mlflow_run_id=inputs['mlflow_run_id'])
 
     ## Initial conditions
     Ip0 = inputs['Ip0']
@@ -101,13 +101,32 @@ def solve_wdm_with_tesseract(inputs: dict, sheath_tesseract) -> dict:
     Nt = int(inputs['t_end'] / dt)
 
     def sheath_solve(Vp, T, n):
-        tx_inputs = dict(Vp=jnp.array(Vp),
-                         n=jnp.array(n),
-                         T=jnp.array(T),
-                         Lz=jnp.array(Lz),
-                         mlflow_parent_run_id=inputs['mlflow_run_id'])
-        j = apply_tesseract(sheath_tesseract, tx_inputs)['j']
-        Ip = j * inputs['N'] / n
+        # tx_inputs = dict(Vp=jnp.array(Vp),
+        #                  n=jnp.array(n),
+        #                  T=jnp.array(T),
+        #                  Lz=jnp.array(Lz),
+        #                  mlflow_parent_run_id=inputs['mlflow_run_id'])
+        # j = apply_tesseract(sheath_tesseract, tx_inputs)['j']
+        Vp = Vp * ureg.V
+        T = T * ureg.eV
+        n = n * (ureg.m**-3)
+
+        # Compute the saturation current I = 0.5 * e * n * c_S
+        gamma = 5/3
+        c_S = ((2*gamma*T / ureg.m_p)**0.5).to(ureg.m / ureg.s)
+        j_sat = 0.5 * ureg.e * n * c_S
+
+        alpha = (Vp * ureg.e / T).to('').magnitude
+        log_lambda = 10
+        eta_spitzer = (2*ureg.m_e)**0.5 * ureg.e**2 * log_lambda / (1.96*12*jnp.pi**1.5 * ureg.epsilon_0**2 * T**1.5)
+        E = Vp / (inputs["Lz"]*ureg.m)
+
+        j_eta = -(E / eta_spitzer).to(ureg.A / ureg.m**2)
+        j_sheath = (-jnp.tanh(alpha) * j_sat)
+        # Values are negative, so take the maximum
+        j = jnp.maximum(j_eta.magnitude, j_sheath.magnitude)
+
+        Ip = j * inputs['N'] / n.magnitude
         return Ip
 
     _, solution = wdm_solver.solve(dt, Nt, ics, sheath_solve)
