@@ -119,8 +119,9 @@ elif tesseract_name == "vlasov_sheath":
 
 sheath_tx = Tesseract.from_tesseract_api(tesseract_api)
 
-def tessCallback(Vp_input, T_input, n0, tesseract_api) -> dict:
+def tessCallback(Vp_input, T_input, n0_input, tesseract_api) -> dict:
 
+    n0 = n0_input * ureg.m**-3
     Vp0 = Vp_input * ureg.volts
 
     T0 = T_input * ureg.eV
@@ -135,10 +136,10 @@ def tessCallback(Vp_input, T_input, n0, tesseract_api) -> dict:
         Vp=jnp.array(Vp0.magnitude), Lz=jnp.array(0.5)
         ))["j"] * (ureg.A / ureg.m**2)
     N = ((8*jnp.pi * (1 + Z) * T0 * n0**2) / (ureg.mu0 * j**2)).to(ureg.m**-1)
-    # print("N = ", N)
+    # jax.debug.print("N = {}", N)
 
     Ip = (j * N / n0).to(ureg.A)
-    # print("Ip = ", Ip)
+    # jax.debug.print("Ip = {}", Ip)
 
     a0 = ((N / n0 / jnp.pi)**0.5).to(ureg.m)
 
@@ -166,8 +167,14 @@ def tessCallback(Vp_input, T_input, n0, tesseract_api) -> dict:
     return result
 # bound params within realistic ranges
 
-def objective_fn(Vp):
-    result = tessCallback(Vp, T_input, n0, tesseract_api)
+def objective_fn(params):
+    
+    _params = denormalize_params(params)
+
+    Vp = _params[0]
+    T = _params[1]
+    n0 = _params[2] 
+    result = tessCallback(Vp, T, n0, tesseract_api)
 
     total_power = result['fusion_power'] - result['bremsstrahlung_power']
     dt = result['ts'][1] - result['ts'][0]  # Assuming ts is a 1D array of time steps
@@ -175,15 +182,19 @@ def objective_fn(Vp):
 
 
 
-def scipy_vg(_Vp):
+def scipy_vg(_params):
     """Value and gradient function for scipy optimization."""
     # __Vp = jnp.array(_Vp)
-    __Vp = jnp.array(extract_value(_Vp))  
+    _Vp = jnp.array(extract_value(_params[0]))  
+    _T = jnp.array(extract_value(_params[1]))
+    _n0 = jnp.array(extract_value(_params[2]))  
 
-    fval, gradVal = fgrad_fn(__Vp)
+    __params = jnp.array([_Vp, _T, _n0])
+
+    fval, gradVal = fgrad_fn(__params)
     fval = np.array(fval)
     gradVal = np.array(gradVal)
-    print(f"Vp={__Vp}, Objective={fval}, Gradient={gradVal}")
+    print(f"Vp={_Vp}, T={_T}, n0={_n0} Objective={fval}, Gradient={gradVal}")
     return fval, gradVal
 
 
@@ -193,30 +204,43 @@ def extract_value(x):
     else:
         return x
 
-def print_results(res):
-# current iteration value
-    print(f"Iteration: {res.nit}, Objective: {res.fun:.2f}, Vp: {res.x[0]:.2f}, Gradient: {res.jac[0]:.2f}, Success: {res.success}, Message: {res.message}")
+#normalize parameters between 0 and 1
+max_params = np.array([10e3, 4000, 1e28])  # Max values for Vp, T, n0
+min_params = np.array([400, 10, 1e20])  # Min values for Vp, T, n0
 
+def normalize_params(params):
+    """Normalize parameters to the range [0, 1]."""
+    return (params - min_params) / (max_params - min_params)
 
-obj_fn_value = objective_fn(Vp_input)
-print(f"Objective function value for Vp={Vp_input} V: {obj_fn_value:.2f} W")
+def denormalize_params(norm_params):
+    """Denormalize parameters back to their original scale."""
+    return norm_params * (max_params - min_params) + min_params
+
+init_params = np.array([Vp_input, T_input, n0.magnitude])  # Initial guess for Vp, T, n0
+norm_init_params = normalize_params(init_params)
+
+obj_fn_value = objective_fn(norm_init_params)
+
+print(f"Objective function value for Vp={Vp_input}, T={T_input}, n0 = {n0} V: {obj_fn_value:.2f} W")
 
 # try out grad of objective function with respect to Vp
 
-f = lambda Vp: objective_fn(Vp)
+f = lambda params: objective_fn(params)
 fgrad_fn = jax.value_and_grad(f)
 
     
-fval, gradVal = fgrad_fn(Vp_input)
-print(f"Value and Gradient of objective function at Vp={Vp_input} f: {fval:.5f} W df/dx: {gradVal:.5f} W/V")
+fval, gradVal = fgrad_fn(norm_init_params)
+print(f"Value and Gradient of objective function at Vp={Vp_input} T={T_input} n0={n0} f: {fval:.5f} W df/dx: {gradVal} W/V")
 
 
-res = opt.minimize(scipy_vg, Vp_input, method='L-BFGS-B', jac=True, options={'disp': True, 'maxiter': 100}, bounds=[(400, 10e3)])
+res = opt.minimize(scipy_vg, norm_init_params, method='L-BFGS-B', jac=True, options={'disp': True, 'maxiter': 100}, bounds=[(0, 1), (0, 1),(0, 1)])
 
+optimal_params = res.x
+optimal_params = denormalize_params(optimal_params)
 
-print(f"Optimized Vp: {res.x[0]:.2f} V")
-print(f"Objective function value at optimized Vp: {res.fun:.2f} W")
-print(f"Gradient at optimized Vp: {res.jac[0]:.2f} W/V")
+print(f"Optimized params: Vp = {optimal_params[0]:.2f} V, T = {optimal_params[1]:.2f} eV, n0 = {optimal_params[2]:.2e} m^-3")
+print(f"Objective function value at optimized (Vp, T, n0): {res.fun:.2f} W")
+print(f"Gradient at optimized params (Vp, T, n0): {res.jac} W/V")
 print(f"Success: {res.success}, Message: {res.message}")
 print(f"Number of iterations: {res.nit}")
 
