@@ -16,6 +16,8 @@ import jpu
 import optimistix as optx
 import scipy.optimize as opt
 from datetime import datetime
+import csv
+
 
 from spscml.whole_device_model.local_wrapper import apply
 from spscml.fusion import fusion_power, bremsstrahlung_power
@@ -96,15 +98,42 @@ Lz = 0.5
 Z = 1.0
 # params we give a shit about n, Vp, 
 
-print(f"Running Vlasov simulations with:")
-print(f"  Vc0: {Vc0}")
-print(f"  T_max: {T_max}")
-print(f"  T_min: {T_min}")
-print(f"  Vp_max: {Vp_max}")
-print(f"  Vp_min: {Vp_min}")
-print(f"  n_max: {n_max}")
-print(f"  n_min: {n_min}")
-print(f"  tesseract: {tesseract_name}")
+# print(f"Running Vlasov simulations with:")
+# print(f"  Vc0: {Vc0}")
+# print(f"  T_max: {T_max}")
+# print(f"  T_min: {T_min}")
+# print(f"  Vp_max: {Vp_max}")
+# print(f"  Vp_min: {Vp_min}")
+# print(f"  n_max: {n_max}")
+# print(f"  n_min: {n_min}")
+# print(f"  tesseract: {tesseract_name}")
+
+
+fname = f"data/test_parameters_mixed.csv"
+
+print(f"Loading from file: {fname}")
+
+data = []
+# with open(fname, newline='') as csvfile:
+#     datareader = csv.DictReader(csvfile, delimiter=',')
+#     for row in datareader:
+#         data.append(row)
+#         print(row)
+
+Vp_vals = []
+n_vals = []
+T_vals = []
+
+with open(fname, newline='') as csvfile:
+    datareader = csv.DictReader(csvfile, delimiter=",")
+    for row in datareader:
+        # print(row)
+        Vp_vals.append(float(row["Vp"].strip()))
+        n_vals.append(float(row["n"].strip()))
+        T_vals.append(float(row["T"].strip()))
+
+# for i in range(len(data)):
+#         datapoint = data[i]
 
 
 if tesseract_name == "vlasov_sheath":
@@ -116,53 +145,100 @@ sheath_tx = Tesseract.from_tesseract_api(tesseract_api)
 
 # run vlasov sim with given NUT params
 def vlasovSimCallback(Vp_input, T_input, n0_input, tesseract_api) -> dict:
+    try:
+        n = n0_input * ureg.m**-3
+        Vp = Vp_input * ureg.V
+        T = T_input * ureg.eV
 
-    n = n0_input * ureg.m**-3
-    Vp = Vp_input * ureg.V
-    T = T_input * ureg.eV
+        j = apply_tesseract(sheath_tx, dict(
+            n=jnp.array(n.magnitude), T=jnp.array(T.magnitude), 
+            Vp=jnp.array(Vp.magnitude), Lz=jnp.array(0.5)
+            ))["j"] * (ureg.A / ureg.m**2)
 
-    j = apply_tesseract(sheath_tx, dict(
-        n=jnp.array(n.magnitude), T=jnp.array(T.magnitude), 
-        Vp=jnp.array(Vp.magnitude), Lz=jnp.array(0.5)
-        ))["j"] * (ureg.A / ureg.m**2)
+        # N = ((8*jnp.pi * (1 + Z) * T * n**2) / (ureg.mu0 * j**2)).to(ureg.m**-1)
+        # # jax.debug.print("N = {}", N)
+        # Ip = (j * N / n).to(ureg.A)
+        # A = ((N / n / jnp.pi)**0.5).to(ureg.m)
 
-    # N = ((8*jnp.pi * (1 + Z) * T * n**2) / (ureg.mu0 * j**2)).to(ureg.m**-1)
-    # # jax.debug.print("N = {}", N)
-    # Ip = (j * N / n).to(ureg.A)
-    # A = ((N / n / jnp.pi)**0.5).to(ureg.m)
+        return dict(Vp=Vp, T=T, n=n, j=j)
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Simulation error: {e}")
 
-    return dict(Vp=Vp, T=T, n=n, j=j)
+# # n_vals = jnp.array([1e20, 5e20, 1e21, 1e22, 6e22, 1e23, 1e24, 1e26, 1e27, 1e28])
+# print("n_vals:", n_vals)
+# # T_vals = jnp.linspace(T_min, T_max, 10)
+# print("T_vals:", T_vals)
+# # Vp_vals = jnp.linspace(Vp_min, Vp_max, 10)
+# print("Vp_vals:", Vp_vals)
+
+# n_train = np.array([1e20, 5e20, 1e21, 1e22, 6e22, 1e23, 1e24, 1e26, 1e27, 1e28])
+# T_train = np.linspace(10, 30e3, 10)
+# Vp_train = np.linspace(400, 10e3, 10)
+
+# fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 
 
-n_vals = jnp.array([1e20, 5e20, 1e21, 1e22, 6e22, 1e23, 1e24, 1e26, 1e27, 1e28])
-print("n_vals:", n_vals)
-T_vals = jnp.linspace(T_min, T_max, 10)
-print("T_vals:", T_vals)
-Vp_vals = jnp.linspace(Vp_min, Vp_max, 10)
-print("Vp_vals:", Vp_vals)
+# axes[0,0].hist(np.log10(n_vals), bins=30, alpha=0.7, color='red', label='Test')
+# axes[0,0].axvline(np.log10(n_train).min(), color='blue', linestyle='--', label='Train bounds')
+# axes[0,0].axvline(np.log10(n_train).max(), color='blue', linestyle='--')
+# axes[0,0].set_xlabel('log₁₀(n) [m⁻³]')
+# axes[0,0].set_ylabel('Frequency')
+# axes[0,0].set_title('n Distribution')
+# axes[0,0].legend()
+# axes[0,0].grid(True, alpha=0.3)
+
+# axes[0,1].hist(T_vals, bins=30, alpha=0.7, color='red', label='Test')
+# axes[0,1].axvline(T_train.min(), color='blue', linestyle='--', label='Train bounds')
+# axes[0,1].axvline(T_train.max(), color='blue', linestyle='--')
+# axes[0,1].set_xlabel('T [eV]')
+# axes[0,1].set_ylabel('Frequency')
+# axes[0,1].set_title('T Distribution')
+# axes[0,1].legend()
+# axes[0,1].grid(True, alpha=0.3)
+
+# axes[0,2].hist(Vp_vals, bins=30, alpha=0.7, color='red', label='Test')
+# axes[0,2].axvline(Vp_train.min(), color='blue', linestyle='--', label='Train bounds')
+# axes[0,2].axvline(Vp_train.max(), color='blue', linestyle='--')
+# axes[0,2].set_xlabel('Vp [V]')
+# axes[0,2].set_ylabel('Frequency')
+# axes[0,2].set_title('Vp Distribution')
+# axes[0,2].legend()
+# axes[0,2].grid(True, alpha=0.3)
+
+# plt.suptitle(f'Test Dataset: mixed Method 1000 points)')
+# plt.tight_layout()
+# plt.show()
+
+
 
 date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-filename = f"vlasov_results_{date_str}.csv"
+filename = f"vlasov_results_mixed_dataset_{date_str}.csv"
 with open(filename, "w") as f:
     f.write("Vp,\tT,\tn,\tj\n")
 
-# run vlasov sim and save data for 10 x 10 x 10 params Vp x T x n 
-for n in n_vals:
-    for Vp in Vp_vals:
-        for T in T_vals:
-            try:
-                result = vlasovSimCallback(Vp, T, n, tesseract_api)
-                # Save result to file or database
-                print(f"Result for Vp={result['Vp']}, T={result['T']}, n={result['n']}: {result['j']}")
-                # Here you would add code to save the result to a file or database
-                with open(filename, "a") as f:
-                    f.write(f"{result['Vp'].magnitude},\t{result['T'].magnitude},\t{result['n'].magnitude},\t{result['j'].magnitude}\n")
-            
-            except RuntimeError:
-                print(f"Simulation failed for Vp={Vp}, T={T}, n={n}")
-                with open(filename, "a") as f:
-                    f.write(f"{Vp},\t{T},\t{n},\t0\n")
-                continue
+try:
+    for n in n_vals:
+        for Vp in Vp_vals:
+            for T in T_vals:
+                try:
+                    result = vlasovSimCallback(Vp, T, n, tesseract_api)
+                    print(f"Result for Vp={result['Vp']}, T={result['T']}, n={result['n']}: {result['j']}")
+                    with open(filename, "a") as f:
+                        f.write(f"{result['Vp'].magnitude},\t{result['T'].magnitude},\t{result['n'].magnitude},\t{result['j'].magnitude}\n")
+
+                # except KeyboardInterrupt:
+                #     print("Keyboard interrupt detected in simulation. Exiting...")
+                #     raise  # Re-raise the KeyboardInterrupt so outer handler catches it
+                except RuntimeError:
+                    print(f"Simulation failed for Vp={Vp}, T={T}, n={n}")
+                    with open(filename, "a") as f:
+                        f.write(f"{Vp},\t{T},\t{n},\t0\n")
+                    continue
+
+except KeyboardInterrupt:
+    print("Exiting all loops...")
 
 # # # trial sim 
 # # Vp = 500.0
