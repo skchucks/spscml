@@ -17,6 +17,9 @@ import optimistix as optx
 import scipy.optimize as opt
 from datetime import datetime
 import csv
+from multiprocessing import Pool
+import itertools
+
 
 
 from spscml.whole_device_model.local_wrapper import apply
@@ -161,28 +164,42 @@ print("Vp_vals:", Vp_vals)
 
 date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 filename = f"vlasov_traindata_results_newbounds_{date_str}.csv"
-with open(filename, "w") as f:
-    f.write("Vp,\tT,\tn,\tj\n")
+# with open(filename, "w") as f:
+#     f.write("Vp,\tT,\tn,\tj\n")
+
+#Create all parameter combinations
+param_combinations = list(itertools.product(n_vals, Vp_vals, T_vals))
+print(f"Total simulations to run: {len(param_combinations)}")
+
+#Function to run a single simulation
+def run_single_sim(params):
+    n, Vp, T = params
+    try:
+        result = vlasovSimCallback(Vp, T, n, tesseract_api)
+        print(f"Result for Vp={result['Vp']}, T={result['T']}, n={result['n']}: {result['j']}")
+        return(result['Vp'].magnitude, result['T'].magnitude, result['n'].magnitude, result['j'].magnitude, True)
+    except RuntimeError:
+        print(f"Simulation failed for Vp={Vp}, T={T}, n={n}")
+        return(Vp, T, n, 0, False)
 
 
 
-for n in n_vals:
-    for Vp in Vp_vals:
-        for T in T_vals:
-            try:
-                result = vlasovSimCallback(Vp, T, n, tesseract_api)
-                print(f"Result for Vp={result['Vp']}, T={result['T']}, n={result['n']}: {result['j']}")
-                with open(filename, "a") as f:
-                    f.write(f"{result['Vp'].magnitude},\t{result['T'].magnitude},\t{result['n'].magnitude},\t{result['j'].magnitude}\n")
+if __name__ == "__main__":
+    # Header: 
+    with open(filename,"w") as f:
+        f.write("Vp,\tT,\tn,\tj, success\n")
 
-            except KeyboardInterrupt:
-                print("Keyboard interrupt detected in simulation. Exiting...")
-                raise  # Re-raise the KeyboardInterrupt so outer handler catches it
-            except RuntimeError:
-                print(f"Simulation failed for Vp={Vp}, T={T}, n={n}")
-                with open(filename, "a") as f:
-                    f.write(f"{Vp},\t{T},\t{n},\t0\n")
-                continue
+    print("Starting parallel sims...")
+    with Pool(64) as pool:
+        results = pool.map(run_single_sim, param_combinations)
+
+    print("Writing results to file...")
+    with open(filename, "a") as f:
+        for result in results:
+            Vp, T, n, j, success = result
+            f.write(f"{Vp},\t{T},\t{n},\t{j},\t{success}\n")
+
+    print("All simulations completed.")
 
 
 # # # # trial sim 
